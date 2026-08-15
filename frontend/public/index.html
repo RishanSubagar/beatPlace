@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>BeatPlace Demo Upload</title>
+    <style>
+      body { font-family: Arial, sans-serif; max-width: 760px; margin: 2rem auto; }
+      textarea { width: 100%; height: 120px; }
+    </style>
+  </head>
+  <body>
+    <h1>BeatPlace — demo uploader</h1>
+    <form id="form">
+      <label>ZIP of beats: <input type="file" name="zip" accept=".zip" required></label>
+      <p/>
+      <label>Artist names (comma or newline separated):</label>
+      <textarea name="artists" placeholder="Artist One, Artist Two"></textarea>
+      <p/>
+      <label>Message to send:</label>
+      <textarea name="message" placeholder="Hi — here's a pack of beats..."></textarea>
+      <p/>
+      <label>From (optional): <input type="email" name="fromEmail" placeholder="you@domain.com"></label>
+      <p/>
+      <button type="submit">Upload & Send (demo)</button>
+    </form>
+    <pre id="out" style="white-space:pre-wrap; background:#f6f6f6; padding:1rem; margin-top:1rem"></pre>
+
+    <script>
+      const form = document.getElementById('form');
+      const out = document.getElementById('out');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        out.textContent = 'Uploading...';
+        const fd = new FormData(form);
+        try {
+          const res = await fetch('/upload', { method: 'POST', body: fd });
+          const json = await res.json();
+          out.textContent = JSON.stringify(json, null, 2);
+        } catch (err) {
+          out.textContent = 'Error: ' + err.message;
+        }
+      });
+    </script>
+  </body>
+</html>
