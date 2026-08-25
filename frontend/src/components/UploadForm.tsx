@@ -20,6 +20,7 @@ export default function UploadForm() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!file) return alert('Please choose a ZIP file')
+    if (!artists.trim()) return alert('Please enter at least one artist')
     const fd = new FormData()
     fd.append('zip', file)
     fd.append('artists', artists)
@@ -28,12 +29,10 @@ export default function UploadForm() {
 
     try {
       setLoading(true)
-      // Explicit backend URL to avoid dev-server proxy 404s. Update if your backend runs elsewhere.
-      const backendUrl = 'http://localhost:3000/upload'
-      const res = await axios.post(backendUrl, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      const res = await axios.post('/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       setResult(res.data)
     } catch (err: any) {
-      setResult({ error: err.message || String(err) })
+      setResult({ error: err.response?.data?.detail || err.message || String(err) })
     } finally {
       setLoading(false)
     }
