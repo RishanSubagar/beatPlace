@@ -33,6 +33,22 @@ frontend/node_modules/
 # Backend
 backend/node_modules/
 backend/uploads/
+backend/.venv/
+backend/venv/
+backend/env/
+backend/data/*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+pip-wheel-metadata/
+*.egg-info/
 
 # Test coverage
 coverage/
