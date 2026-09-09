@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
-from app.job_service import create_research_job, get_research_job
+from app.job_service import JobNotFoundError, create_research_job, get_research_job, run_job_cycle
 from app.models import JobStatusResponse, UploadResponse
 from app.services.attachment_service import process_attachment
 from app.services.email_finder import parse_artists
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = FastAPI(title="BeatPlace", version="0.1.0")
 
@@ -25,6 +30,14 @@ async def index() -> FileResponse:
     if not frontend_path.exists():
         raise HTTPException(status_code=404, detail="Frontend page not found")
     return FileResponse(frontend_path)
+
+
+def _run_job_in_background(job_id: str) -> None:
+    """Run the job cycle in a background thread."""
+    try:
+        run_job_cycle(job_id)
+    except Exception as e:
+        print(f"Background job {job_id} failed: {e}")
 
 
 @app.post("/upload")
@@ -51,15 +64,21 @@ async def upload(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
+    # Trigger job cycle in background thread (non-blocking)
+    thread = threading.Thread(target=_run_job_in_background, args=(job_id,), daemon=True)
+    thread.start()
+
     response = UploadResponse(job_id=job_id, people_found=len(artists_list), status="queued")
     return response.model_dump()
 
 
 @app.get("/jobs/{job_id}", response_model=JobStatusResponse)
 async def job_status(job_id: str) -> JobStatusResponse:
-    job = get_research_job(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="job not found")
+    try:
+        job = get_research_job(job_id)
+    except JobNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
     return JobStatusResponse(
         job_id=job["id"],
         status=job["status"],

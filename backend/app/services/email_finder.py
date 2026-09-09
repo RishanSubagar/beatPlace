@@ -18,14 +18,18 @@ async def find_emails_for_artists(artists: list[str]) -> dict[str, list[str]]:
         name = artist.strip()
         if not name:
             continue
+        # For now, generate placeholder emails but log a warning
+        # TODO: Extract real emails from research results
         normalized = name.lower().replace(" ", ".").replace("-", ".")
         normalized = re.sub(r"[^a-z0-9.]", "", normalized)
-        out[name] = [f"{normalized}@example.com", f"contact@{normalized}music.com"]
+        emails = [f"{normalized}@example.com", f"contact@{normalized}music.com"]
+        out[name] = emails
+        print(f"[EMAIL_FINDER] {name}: Generated placeholder emails (should extract from research results)")
+        for email in emails:
+            print(f"  - {email}")
 
     total = sum(len(emails) for emails in out.values())
-    print(f"found {total} emails")
-
-    for artist, emails in out.items():
-        print(f"discovered for {artist}: {emails}")
+    print(f"[EMAIL_FINDER] Total placeholder emails: {total}")
+    print(f"[EMAIL_FINDER] ⚠️  WARNING: Using placeholder emails - implement extraction from research results!")
 
     return out
