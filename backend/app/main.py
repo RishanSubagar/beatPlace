@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
-from app.job_service import JobNotFoundError, create_research_job, get_research_job, run_job_cycle
+from app.job_service import JobNotFoundError, create_research_job, get_research_job, get_people_for_job, run_job_cycle
 from app.models import JobStatusResponse, UploadResponse
 from app.services.attachment_service import process_attachment
 from app.services.email_finder import parse_artists
@@ -86,3 +86,23 @@ async def job_status(job_id: str) -> JobStatusResponse:
         people_completed=job["people_completed"] or 0,
         created_at=job["created_at"],
     )
+
+
+@app.get("/jobs/{job_id}/people")
+async def job_people(job_id: str) -> dict[str, object]:
+    try:
+        get_research_job(job_id)
+        people = get_people_for_job(job_id)
+    except JobNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+    return {
+        "job_id": job_id,
+        "people": [
+            {
+                "name": person["name"],
+                "status": person["status"],
+            }
+            for person in people
+        ],
+    }
