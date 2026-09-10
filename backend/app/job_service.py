@@ -75,7 +75,7 @@ async def run_job_cycle_async(job_id: str) -> None:
         for person in people:
             try:
                 print(f"\n=== Researching {person['name']} ===")
-                research_results = research_person(job_id, person["name"])
+                research_person(job_id, person["name"])
                 print(f"=== Research complete for {person['name']} ===")
             except Exception as e:
                 print(f"❌ Research failed for {person['name']}: {e}")
