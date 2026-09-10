@@ -171,3 +171,25 @@ def get_research_results(job_id: str, person_name: str | None = None) -> list[sq
         return rows
     finally:
         connection.close()
+
+
+def get_recent_research_results(person_name: str, days: int = 15) -> list[sqlite3.Row]:
+    """
+    Get cached research results for a person from the last N days.
+    Useful for avoiding redundant Serper API calls.
+    """
+    connection = _connect()
+    try:
+        cutoff_date = (datetime.now(timezone.utc) - __import__('datetime').timedelta(days=days)).isoformat()
+        rows = connection.execute(
+            """
+            SELECT DISTINCT title, url, description
+            FROM research_results 
+            WHERE person_name = ? AND created_at >= ?
+            ORDER BY created_at DESC
+            """,
+            (person_name, cutoff_date),
+        ).fetchall()
+        return rows
+    finally:
+        connection.close()
