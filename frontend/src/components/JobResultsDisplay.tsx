@@ -15,6 +15,7 @@ import {
   Alert,
 } from '@mui/material'
 import axios from 'axios'
+import { subscribeToJob } from '../services/jobApi'
 
 interface Person {
   name: string
@@ -32,25 +33,40 @@ export default function JobResultsDisplay({ jobId, isCompleted }: JobResultsDisp
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const fetchPeople = async () => {
+    let active = true
+    const source = subscribeToJob(jobId, (snapshot) => {
+      if (!active) return
+      setPeople(snapshot.people || [])
+      setError(null)
+      setLoading(false)
+
+      if (snapshot.status === 'completed' || snapshot.status === 'failed') {
+        source.close()
+      }
+    })
+
+    source.onerror = async () => {
       try {
         const response = await axios.get<{ job_id: string; people: Person[] }>(
           `/jobs/${jobId}/people`
         )
-        setPeople(response.data.people)
-        setError(null)
+        if (active) {
+          setPeople(response.data.people || [])
+          setError(null)
+          setLoading(false)
+        }
       } catch (err: any) {
-        setError(err.response?.data?.detail || err.message || 'Failed to fetch people')
-      } finally {
-        setLoading(false)
+        if (active) {
+          setError(err.response?.data?.detail || err.message || 'Failed to fetch people')
+          setLoading(false)
+        }
       }
     }
 
-    // Fetch immediately and then every 2 seconds
-    fetchPeople()
-    const interval = setInterval(fetchPeople, 2000)
-
-    return () => clearInterval(interval)
+    return () => {
+      active = false
+      source.close()
+    }
   }, [jobId])
 
   if (loading && people.length === 0) {

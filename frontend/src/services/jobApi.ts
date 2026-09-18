@@ -8,9 +8,22 @@ export interface JobStatus {
   created_at: string
 }
 
+export interface JobSnapshot extends JobStatus {
+  people: Array<{
+    name: string
+    status: 'queued' | 'researching' | 'completed' | 'failed'
+  }>
+}
+
 export async function getJobStatus(jobId: string): Promise<JobStatus> {
   const response = await axios.get<JobStatus>(`/jobs/${jobId}`)
   return response.data
+}
+
+export function subscribeToJob(jobId: string, onUpdate: (snapshot: JobSnapshot) => void): EventSource {
+  const source = new EventSource(`/jobs/${jobId}/events`)
+  source.onmessage = (event) => onUpdate(JSON.parse(event.data) as JobSnapshot)
+  return source
 }
 
 export function getStatusColor(status: string): string {

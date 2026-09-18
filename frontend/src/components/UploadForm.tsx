@@ -15,7 +15,7 @@ export default function UploadForm() {
   const [artists, setArtists] = useState('')
   const [message, setMessage] = useState('')
   const [fromEmail, setFromEmail] = useState('')
-  const [uploading, setUploading] = useState(false)
+  const [uploading, setUploading] = useState(false)  
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [jobStatus, setJobStatus] = useState<string | null>(null)

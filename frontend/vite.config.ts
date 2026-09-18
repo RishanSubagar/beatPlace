@@ -6,7 +6,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/upload': 'http://localhost:8000'
+      '/upload': 'http://localhost:8000',
+      '/jobs': 'http://localhost:8000'
     }
   }
 })

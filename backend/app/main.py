@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import threading
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
+from app.job_events import job_events
 from app.job_service import JobNotFoundError, create_research_job, get_research_job, get_people_for_job, run_job_cycle
 from app.models import JobStatusResponse, UploadResponse
 from app.services.attachment_service import process_attachment
@@ -17,6 +20,26 @@ from app.services.email_finder import parse_artists
 load_dotenv()
 
 app = FastAPI(title="BeatPlace", version="0.1.0")
+
+
+def _job_snapshot(job_id: str) -> dict[str, object]:
+    job = get_research_job(job_id)
+    people = get_people_for_job(job_id)
+    return {
+        "job_id": job["id"],
+        "status": job["status"],
+        "people_found": job["people_found"],
+        "people_completed": job["people_completed"] or 0,
+        "created_at": job["created_at"],
+        "people": [
+            {"name": person["name"], "status": person["status"]}
+            for person in people
+        ],
+    }
+
+
+def _sse_message(snapshot: dict[str, object]) -> str:
+    return f"data: {json.dumps(snapshot)}\n\n"
 
 
 @app.get("/health")
@@ -85,6 +108,41 @@ async def job_status(job_id: str) -> JobStatusResponse:
         people_found=job["people_found"],
         people_completed=job["people_completed"] or 0,
         created_at=job["created_at"],
+    )
+
+
+@app.get("/jobs/{job_id}/events")
+async def job_events_stream(job_id: str) -> StreamingResponse:
+    event_queue = job_events.subscribe(job_id)
+    try:
+        initial_snapshot = _job_snapshot(job_id)
+    except JobNotFoundError as error:
+        job_events.unsubscribe(job_id, event_queue)
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+    async def stream():
+        try:
+            yield _sse_message(initial_snapshot)
+            if initial_snapshot["status"] in {"completed", "failed"}:
+                return
+
+            while True:
+                try:
+                    await asyncio.wait_for(asyncio.to_thread(event_queue.get), timeout=15)
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+                    continue
+                snapshot = _job_snapshot(job_id)
+                yield _sse_message(snapshot)
+                if snapshot["status"] in {"completed", "failed"}:
+                    return
+        finally:
+            job_events.unsubscribe(job_id, event_queue)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

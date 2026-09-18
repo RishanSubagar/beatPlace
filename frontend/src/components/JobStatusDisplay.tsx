@@ -9,7 +9,7 @@ import {
   Chip,
   CircularProgress,
 } from '@mui/material'
-import { getJobStatus, getStatusColor, getStatusLabel, JobStatus } from '../services/jobApi'
+import { getJobStatus, getStatusColor, getStatusLabel, JobStatus, subscribeToJob } from '../services/jobApi'
 
 interface JobStatusDisplayProps {
   jobId: string
@@ -19,36 +19,44 @@ export default function JobStatusDisplay({ jobId }: JobStatusDisplayProps) {
   const [status, setStatus] = useState<JobStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [isPolling, setIsPolling] = useState(true)
+  const [isStreaming, setIsStreaming] = useState(true)
 
   useEffect(() => {
-    if (!isPolling) return
+    let active = true
+    const source = subscribeToJob(jobId, (snapshot) => {
+      if (!active) return
+      setStatus(snapshot)
+      setError(null)
+      setLoading(false)
 
-    const pollStatus = async () => {
+      if (snapshot.status === 'completed' || snapshot.status === 'failed') {
+        setIsStreaming(false)
+        source.close()
+      }
+    })
+
+    source.onerror = async () => {
+      if (!active) return
       try {
         const data = await getJobStatus(jobId)
-        setStatus(data)
-        setError(null)
-
-        // Stop polling if job is completed or failed
-        if (data.status === 'completed' || data.status === 'failed') {
-          setIsPolling(false)
+        if (active) {
+          setStatus(data)
+          setLoading(false)
+          setError(null)
         }
       } catch (err: any) {
-        setError(err.response?.data?.detail || err.message || 'Failed to fetch job status')
-      } finally {
-        setLoading(false)
+        if (active && !status) {
+          setError(err.response?.data?.detail || err.message || 'Failed to fetch job status')
+          setLoading(false)
+        }
       }
     }
 
-    // Poll immediately
-    pollStatus()
-
-    // Then poll every 2 seconds while active
-    const interval = setInterval(pollStatus, 2000)
-
-    return () => clearInterval(interval)
-  }, [jobId, isPolling])
+    return () => {
+      active = false
+      source.close()
+    }
+  }, [jobId])
 
   if (loading && !status) {
     return (
@@ -67,7 +75,9 @@ export default function JobStatusDisplay({ jobId }: JobStatusDisplayProps) {
     return <Alert severity="error">Could not fetch job status</Alert>
   }
 
-  const progress = (status.people_completed / status.people_found) * 100
+  const progress = status.people_found
+    ? (status.people_completed / status.people_found) * 100
+    : 0
 
   return (
     <Card sx={{ mt: 3, mb: 3 }}>
@@ -110,9 +120,9 @@ export default function JobStatusDisplay({ jobId }: JobStatusDisplayProps) {
           </Box>
         </Box>
 
-        {isPolling && status.status !== 'completed' && status.status !== 'failed' && (
+        {isStreaming && status.status !== 'completed' && status.status !== 'failed' && (
           <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
-            🔄 Polling for updates...
+            🔄 Live updates connected
           </Typography>
         )}
       </CardContent>
