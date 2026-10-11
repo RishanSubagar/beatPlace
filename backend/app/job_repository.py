@@ -4,6 +4,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.models import ContactCandidate
+
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "jobs.sqlite3"
 
 
@@ -43,6 +45,19 @@ def initialize_database() -> None:
                 url TEXT NOT NULL,
                 description TEXT NOT NULL,
                 created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS contact_candidates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT NOT NULL REFERENCES jobs(id),
+                person_name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+                source_url TEXT NOT NULL,
+                evidence TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'approved', 'rejected')),
+                created_at TEXT NOT NULL,
+                UNIQUE(job_id, person_name, email, source_url)
             );
             """
         )
@@ -190,6 +205,60 @@ def get_recent_research_results(person_name: str, days: int = 15) -> list[sqlite
             """,
             (person_name, cutoff_date),
         ).fetchall()
+        return rows
+    finally:
+        connection.close()
+
+
+def create_contact_candidates(
+    job_id: str,
+    person_name: str,
+    candidates: list[ContactCandidate],
+) -> None:
+    created_at = datetime.now(timezone.utc).isoformat()
+    connection = _connect()
+    try:
+        connection.executemany(
+            """
+            INSERT OR IGNORE INTO contact_candidates
+                (job_id, person_name, email, confidence, source_url, evidence, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+            """,
+            [
+                (
+                    job_id,
+                    person_name,
+                    str(candidate.email),
+                    candidate.confidence,
+                    str(candidate.source_url),
+                    candidate.evidence,
+                    created_at,
+                )
+                for candidate in candidates
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def get_contact_candidates(
+    job_id: str,
+    person_name: str | None = None,
+) -> list[sqlite3.Row]:
+    connection = _connect()
+    try:
+        if person_name is None:
+            rows = connection.execute(
+                "SELECT * FROM contact_candidates WHERE job_id = ? ORDER BY id",
+                (job_id,),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """SELECT * FROM contact_candidates
+                   WHERE job_id = ? AND person_name = ? ORDER BY id""",
+                (job_id, person_name),
+            ).fetchall()
         return rows
     finally:
         connection.close()
