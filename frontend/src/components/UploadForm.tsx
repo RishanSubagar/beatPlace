@@ -48,20 +48,20 @@ export default function UploadForm() {
 
   // If job is in progress or completed, show status displays
   if (jobId) {
-    const isCompleted = jobStatus === 'completed' || jobStatus === 'failed'
+    const isCompleted = ['awaiting_approval', 'completed', 'failed'].includes(jobStatus ?? '')
 
     return (
       <Box>
         <Box sx={{ mb: 3, p: 2, backgroundColor: '#f0f7ff', borderRadius: 1 }}>
           <Typography variant="h6" sx={{ mb: 1 }}>
-            ✨ Your beats are being processed!
+            Contact research is in progress
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            We're researching your artists and sending out your beats. This usually takes 30-60 seconds.
+            We are checking public artist pages for contact details. No emails will be sent in this step.
           </Typography>
         </Box>
 
-        <JobStatusDisplay jobId={jobId} />
+        <JobStatusDisplay jobId={jobId} onStatusChange={setJobStatus} />
         <JobResultsDisplay jobId={jobId} isCompleted={isCompleted} />
 
         {isCompleted && (
@@ -79,7 +79,7 @@ export default function UploadForm() {
               setUploadError(null)
             }}
           >
-            ← Send Another Batch
+            Start Another Search
           </Button>
         )}
       </Box>

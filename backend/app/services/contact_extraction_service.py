@@ -39,6 +39,9 @@ async def extract_contact_candidates(
         if candidate.evidence not in source_page.text:
             raise ValueError("candidate evidence must appear verbatim in its source page")
 
+    if not candidates:
+        return []
+
     create_contact_candidates(
         job_id,
         person_name,

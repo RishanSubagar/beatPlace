@@ -2,20 +2,22 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from pathlib import Path
+from typing import Protocol, Sequence
 
 from app.job_events import job_events
 from app.job_repository import (
     create_job as repo_create_job,
+    get_contact_candidates as repo_get_contact_candidates,
     get_job as repo_get_job,
-    get_job_details,
     get_people_for_job as repo_get_people_for_job,
     initialize_database,
     update_job_status,
     update_person_status,
 )
-from app.services.email_finder import find_emails_for_artists
-from app.services.mailer import send_mail
+from app.models import ContactSourcePage
+from app.services.contact_extraction_service import ContactExtractor, extract_contact_candidates
+from app.services.openai_contact_extractor import OpenAIContactExtractor
+from app.services.page_fetch_service import fetch_contact_pages
 from app.services.research_service import research_person
 
 
@@ -50,11 +52,32 @@ def get_people_for_job(job_id: str):
     return repo_get_people_for_job(job_id)
 
 
+def get_contact_candidates(job_id: str):
+    initialize_database()
+    if repo_get_job(job_id) is None:
+        raise JobNotFoundError(job_id)
+    return repo_get_contact_candidates(job_id)
+
+
 def _publish_job_update(job_id: str) -> None:
     job_events.publish(job_id)
 
 
-async def run_job_cycle_async(job_id: str) -> None:
+class Researcher(Protocol):
+    def __call__(self, job_id: str, person_name: str) -> list[dict[str, str]]: ...
+
+
+class PageFetcher(Protocol):
+    def __call__(self, urls: Sequence[str]) -> list[ContactSourcePage]: ...
+
+
+async def run_job_cycle_async(
+    job_id: str,
+    *,
+    researcher: Researcher = research_person,
+    page_fetcher: PageFetcher = fetch_contact_pages,
+    extractor: ContactExtractor | None = None,
+) -> None:
     """
     Execute the full job cycle: research, email finding, and sending.
     """
@@ -63,96 +86,83 @@ async def run_job_cycle_async(job_id: str) -> None:
     if job is None:
         raise JobNotFoundError(job_id)
     
-    # Get full job details for upload path and message
-    job_details = get_job_details(job_id)
-    if job_details is None:
-        raise JobNotFoundError(job_id)
-
     try:
-        # Phase 1: Research
         update_job_status(job_id, "researching")
         _publish_job_update(job_id)
         people = repo_get_people_for_job(job_id)
-        
-        for person in people:
-            update_person_status(job_id, person["name"], "researching")
-            _publish_job_update(job_id)
-        
-        # Research each artist
-        for person in people:
-            try:
-                print(f"\n=== Researching {person['name']} ===")
-                research_person(job_id, person["name"])
-                print(f"=== Research complete for {person['name']} ===")
-                _publish_job_update(job_id)
-            except Exception as e:
-                print(f"❌ Research failed for {person['name']}: {e}")
-                update_person_status(job_id, person["name"], "failed")
-                _publish_job_update(job_id)
-                # Continue with others even if one fails
-        
-        # Phase 2: Find emails and send
-        update_job_status(job_id, "interpreting")
-        _publish_job_update(job_id)
-        
-        # Get email mappings for all artists
-        artist_names = [p["name"] for p in people]
-        email_map = await find_emails_for_artists(artist_names)
-        
-        # Send emails to each person
-        upload_path = Path(job_details["upload_path"])
-        from_email = job_details["from_email"]
-        message = job_details["message"]
-        
+
+        results_by_person: dict[str, list[dict[str, str]]] = {}
+        failed_people: set[str] = set()
         for person in people:
             person_name = person["name"]
-            emails = email_map.get(person_name, [])
-            
-            if not emails:
-                print(f"No emails found for {person_name}")
-                update_person_status(job_id, person_name, "failed")
-                _publish_job_update(job_id)
-                continue
-            
+            update_person_status(job_id, person_name, "researching")
+            _publish_job_update(job_id)
             try:
-                for email in emails:
-                    subject = f"Beat Submission for {person_name}"
-                    body = f"""Hi {person_name},
-
-{message}
-
-Check out these beats!
-
-Best regards"""
-                    
-                    await send_mail({
-                        "to": email,
-                        "from": from_email,
-                        "subject": subject,
-                        "text": body,
-                        "attachment_path": str(upload_path) if upload_path.exists() else None,
-                    })
-                    print(f"Email sent to {email} for {person_name}")
-                
-                update_person_status(job_id, person_name, "completed")
-                _publish_job_update(job_id)
+                results_by_person[person_name] = researcher(job_id, person_name)
             except Exception as e:
-                print(f"Failed to send email for {person_name}: {e}")
+                print(f"Research failed for {person_name}: {e}")
+                failed_people.add(person_name)
                 update_person_status(job_id, person_name, "failed")
                 _publish_job_update(job_id)
-        
-        update_job_status(job_id, "completed")
+
+        update_job_status(job_id, "interpreting")
         _publish_job_update(job_id)
-        print(f"Job {job_id} completed")
-    
+
+        contact_extractor = extractor or OpenAIContactExtractor()
+        for person in people:
+            person_name = person["name"]
+            if person_name in failed_people:
+                continue
+
+            try:
+                results = results_by_person.get(person_name, [])
+                update_person_status(job_id, person_name, "finding_contacts")
+                _publish_job_update(job_id)
+                pages = await asyncio.to_thread(
+                    page_fetcher,
+                    [result["url"] for result in results if result.get("url")],
+                )
+                candidates = await extract_contact_candidates(
+                    job_id,
+                    person_name,
+                    pages,
+                    contact_extractor,
+                )
+                new_status = "pending_review" if candidates else "no_candidates"
+                update_person_status(job_id, person_name, new_status)
+            except Exception as e:
+                print(f"Contact extraction failed for {person_name}: {e}")
+                update_person_status(job_id, person_name, "failed")
+
+            _publish_job_update(job_id)
+
+        candidates = repo_get_contact_candidates(job_id)
+        final_status = "awaiting_approval" if candidates else "completed"
+        update_job_status(job_id, final_status)
+        _publish_job_update(job_id)
+        print(f"Job {job_id} finished with status {final_status}; no emails were sent")
+
     except Exception as e:
         print(f"Job {job_id} failed with error: {e}")
         update_job_status(job_id, "failed")
         _publish_job_update(job_id)
 
 
-def run_job_cycle(job_id: str) -> None:
+def run_job_cycle(
+    job_id: str,
+    *,
+    researcher: Researcher = research_person,
+    page_fetcher: PageFetcher = fetch_contact_pages,
+    extractor: ContactExtractor | None = None,
+) -> None:
     """
     Synchronous wrapper for run_job_cycle_async.
     """
-    asyncio.run(run_job_cycle_async(job_id))
+    asyncio.run(
+        run_job_cycle_async(
+            job_id,
+            researcher=researcher,
+            page_fetcher=page_fetcher,
+            extractor=extractor,
+        )
+    )

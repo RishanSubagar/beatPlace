@@ -13,9 +13,10 @@ import { getJobStatus, getStatusColor, getStatusLabel, JobStatus, subscribeToJob
 
 interface JobStatusDisplayProps {
   jobId: string
+  onStatusChange?: (status: JobStatus['status']) => void
 }
 
-export default function JobStatusDisplay({ jobId }: JobStatusDisplayProps) {
+export default function JobStatusDisplay({ jobId, onStatusChange }: JobStatusDisplayProps) {
   const [status, setStatus] = useState<JobStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -26,10 +27,11 @@ export default function JobStatusDisplay({ jobId }: JobStatusDisplayProps) {
     const source = subscribeToJob(jobId, (snapshot) => {
       if (!active) return
       setStatus(snapshot)
+      onStatusChange?.(snapshot.status)
       setError(null)
       setLoading(false)
 
-      if (snapshot.status === 'completed' || snapshot.status === 'failed') {
+      if (['awaiting_approval', 'completed', 'failed'].includes(snapshot.status)) {
         setIsStreaming(false)
         source.close()
       }
@@ -41,6 +43,7 @@ export default function JobStatusDisplay({ jobId }: JobStatusDisplayProps) {
         const data = await getJobStatus(jobId)
         if (active) {
           setStatus(data)
+          onStatusChange?.(data.status)
           setLoading(false)
           setError(null)
         }
@@ -56,7 +59,7 @@ export default function JobStatusDisplay({ jobId }: JobStatusDisplayProps) {
       active = false
       source.close()
     }
-  }, [jobId])
+  }, [jobId, onStatusChange])
 
   if (loading && !status) {
     return (

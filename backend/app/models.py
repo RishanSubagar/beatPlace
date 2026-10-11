@@ -5,7 +5,22 @@ from typing import Literal
 
 from pydantic import AnyHttpUrl, BaseModel, EmailStr, Field
 
-JobStatus = Literal["queued", "researching", "interpreting", "completed", "failed"]
+JobStatus = Literal[
+    "queued",
+    "researching",
+    "interpreting",
+    "awaiting_approval",
+    "completed",
+    "failed",
+]
+PersonStatus = Literal[
+    "queued",
+    "researching",
+    "finding_contacts",
+    "pending_review",
+    "no_candidates",
+    "failed",
+]
 
 
 class UploadResponse(BaseModel):
@@ -31,6 +46,10 @@ class ContactCandidate(BaseModel):
     confidence: float = Field(ge=0, le=1)
     source_url: AnyHttpUrl
     evidence: str = Field(min_length=1, max_length=1000)
+
+
+class ContactExtractionResponse(BaseModel):
+    candidates: list[ContactCandidate]
 
 
 class ContactSourcePage(BaseModel):

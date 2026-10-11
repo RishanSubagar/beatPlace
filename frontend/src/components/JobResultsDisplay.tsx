@@ -15,11 +15,11 @@ import {
   Alert,
 } from '@mui/material'
 import axios from 'axios'
-import { subscribeToJob } from '../services/jobApi'
+import { ContactCandidate, subscribeToJob } from '../services/jobApi'
 
 interface Person {
   name: string
-  status: 'queued' | 'researching' | 'completed' | 'failed'
+  status: 'queued' | 'researching' | 'finding_contacts' | 'pending_review' | 'no_candidates' | 'failed'
 }
 
 interface JobResultsDisplayProps {
@@ -29,6 +29,7 @@ interface JobResultsDisplayProps {
 
 export default function JobResultsDisplay({ jobId, isCompleted }: JobResultsDisplayProps) {
   const [people, setPeople] = useState<Person[]>([])
+  const [candidates, setCandidates] = useState<ContactCandidate[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -37,21 +38,28 @@ export default function JobResultsDisplay({ jobId, isCompleted }: JobResultsDisp
     const source = subscribeToJob(jobId, (snapshot) => {
       if (!active) return
       setPeople(snapshot.people || [])
+      setCandidates(snapshot.candidates || [])
       setError(null)
       setLoading(false)
 
-      if (snapshot.status === 'completed' || snapshot.status === 'failed') {
+      if (['awaiting_approval', 'completed', 'failed'].includes(snapshot.status)) {
         source.close()
       }
     })
 
     source.onerror = async () => {
       try {
-        const response = await axios.get<{ job_id: string; people: Person[] }>(
+        const [peopleResponse, candidateResponse] = await Promise.all([
+          axios.get<{ job_id: string; people: Person[] }>(
           `/jobs/${jobId}/people`
-        )
+          ),
+          axios.get<{ job_id: string; candidates: ContactCandidate[] }>(
+            `/jobs/${jobId}/candidates`
+          ),
+        ])
         if (active) {
-          setPeople(response.data.people || [])
+          setPeople(peopleResponse.data.people || [])
+          setCandidates(candidateResponse.data.candidates || [])
           setError(null)
           setLoading(false)
         }
@@ -98,7 +106,13 @@ export default function JobResultsDisplay({ jobId, isCompleted }: JobResultsDisp
   const getStatusLabel = (status: string) => {
     switch (status) {
       case 'completed':
-        return '✅ Sent'
+        return '✅ Processed'
+      case 'pending_review':
+        return 'Needs review'
+      case 'no_candidates':
+        return 'No candidates found'
+      case 'finding_contacts':
+        return 'Analyzing pages'
       case 'failed':
         return '❌ Failed'
       case 'researching':
@@ -114,7 +128,7 @@ export default function JobResultsDisplay({ jobId, isCompleted }: JobResultsDisp
     <Card sx={{ mt: 3 }}>
       <CardContent>
         <Typography variant="h6" sx={{ mb: 2 }}>
-          Artists Status
+          Artist Research
         </Typography>
 
         <TableContainer>
@@ -150,6 +164,48 @@ export default function JobResultsDisplay({ jobId, isCompleted }: JobResultsDisp
             </TableBody>
           </Table>
         </TableContainer>
+          {candidates.length > 0 && (
+            <Box sx={{ mt: 3 }}>
+              <Typography variant="h6" sx={{ mb: 1 }}>
+                Contact candidates awaiting review
+              </Typography>
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Artist</TableCell>
+                      <TableCell>Email</TableCell>
+                      <TableCell>Confidence</TableCell>
+                      <TableCell>Evidence</TableCell>
+                      <TableCell>Source</TableCell>
+                      <TableCell>Status</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {candidates.map((candidate) => (
+                      <TableRow key={candidate.id}>
+                        <TableCell>{candidate.person_name}</TableCell>
+                        <TableCell>{candidate.email}</TableCell>
+                        <TableCell>{Math.round(candidate.confidence * 100)}%</TableCell>
+                        <TableCell>{candidate.evidence}</TableCell>
+                        <TableCell>
+                          <a href={candidate.source_url} target="_blank" rel="noreferrer">
+                            View source
+                          </a>
+                        </TableCell>
+                        <TableCell>
+                          <Chip label="Pending review" color="warning" size="small" />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              <Alert severity="info" sx={{ mt: 2 }}>
+                No emails have been sent. Candidate approval and sending are not available yet.
+              </Alert>
+            </Box>
+          )}
       </CardContent>
     </Card>
   )
