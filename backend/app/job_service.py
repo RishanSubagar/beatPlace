@@ -4,6 +4,7 @@ import asyncio
 import uuid
 from pathlib import Path
 
+from app.job_events import job_events
 from app.job_repository import (
     create_job as repo_create_job,
     get_job as repo_get_job,
@@ -49,6 +50,10 @@ def get_people_for_job(job_id: str):
     return repo_get_people_for_job(job_id)
 
 
+def _publish_job_update(job_id: str) -> None:
+    job_events.publish(job_id)
+
+
 async def run_job_cycle_async(job_id: str) -> None:
     """
     Execute the full job cycle: research, email finding, and sending.
@@ -66,10 +71,12 @@ async def run_job_cycle_async(job_id: str) -> None:
     try:
         # Phase 1: Research
         update_job_status(job_id, "researching")
+        _publish_job_update(job_id)
         people = repo_get_people_for_job(job_id)
         
         for person in people:
             update_person_status(job_id, person["name"], "researching")
+            _publish_job_update(job_id)
         
         # Research each artist
         for person in people:
@@ -77,12 +84,16 @@ async def run_job_cycle_async(job_id: str) -> None:
                 print(f"\n=== Researching {person['name']} ===")
                 research_person(job_id, person["name"])
                 print(f"=== Research complete for {person['name']} ===")
+                _publish_job_update(job_id)
             except Exception as e:
                 print(f"❌ Research failed for {person['name']}: {e}")
+                update_person_status(job_id, person["name"], "failed")
+                _publish_job_update(job_id)
                 # Continue with others even if one fails
         
         # Phase 2: Find emails and send
         update_job_status(job_id, "interpreting")
+        _publish_job_update(job_id)
         
         # Get email mappings for all artists
         artist_names = [p["name"] for p in people]
@@ -100,6 +111,7 @@ async def run_job_cycle_async(job_id: str) -> None:
             if not emails:
                 print(f"No emails found for {person_name}")
                 update_person_status(job_id, person_name, "failed")
+                _publish_job_update(job_id)
                 continue
             
             try:
@@ -123,16 +135,20 @@ Best regards"""
                     print(f"Email sent to {email} for {person_name}")
                 
                 update_person_status(job_id, person_name, "completed")
+                _publish_job_update(job_id)
             except Exception as e:
                 print(f"Failed to send email for {person_name}: {e}")
                 update_person_status(job_id, person_name, "failed")
+                _publish_job_update(job_id)
         
         update_job_status(job_id, "completed")
+        _publish_job_update(job_id)
         print(f"Job {job_id} completed")
     
     except Exception as e:
         print(f"Job {job_id} failed with error: {e}")
         update_job_status(job_id, "failed")
+        _publish_job_update(job_id)
 
 
 def run_job_cycle(job_id: str) -> None:
