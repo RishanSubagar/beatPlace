@@ -36,8 +36,10 @@ class OpenAIContactExtractor:
             {"source_url": str(page.source_url), "text": page.text}
             for page in pages
         ]
+        client = self._get_client()
+        print(f"Starting GPT contact extraction for {person_name} ({len(pages)} pages)")
         response = await asyncio.to_thread(
-            self._get_client().chat.completions.create,
+            client.chat.completions.create,
             model=MODEL,
             temperature=0,
             response_format={
@@ -101,4 +103,12 @@ class OpenAIContactExtractor:
             raise ValueError("OpenAI returned an empty contact-extraction response")
 
         payload = json.loads(content)
-        return [ContactCandidate.model_validate(candidate) for candidate in payload["candidates"]]
+        candidates = [
+            ContactCandidate.model_validate(candidate)
+            for candidate in payload["candidates"]
+        ]
+        print(
+            f"GPT contact extraction completed for {person_name}: "
+            f"{len(candidates)} candidates"
+        )
+        return candidates
