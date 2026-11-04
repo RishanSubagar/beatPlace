@@ -55,6 +55,11 @@ class ContactExtractionResponse(BaseModel):
 class ContactSourcePage(BaseModel):
     source_url: AnyHttpUrl
     text: str = Field(max_length=30000)
+    http_status: int | None = None
+    content_type: str | None = None
+    redirect_history: list[str] = Field(default_factory=list)
+    mailto_count: int = 0
+    blocked: bool = False
 
 
 class StoredContactCandidate(ContactCandidate):
