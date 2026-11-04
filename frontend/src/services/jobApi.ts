@@ -2,7 +2,7 @@ import axios from 'axios'
 
 export interface JobStatus {
   job_id: string
-  status: 'queued' | 'researching' | 'interpreting' | 'completed' | 'failed'
+  status: 'queued' | 'researching' | 'interpreting' | 'awaiting_approval' | 'completed' | 'failed'
   people_found: number
   people_completed: number
   created_at: string
@@ -11,8 +11,20 @@ export interface JobStatus {
 export interface JobSnapshot extends JobStatus {
   people: Array<{
     name: string
-    status: 'queued' | 'researching' | 'completed' | 'failed'
+    status: 'queued' | 'researching' | 'finding_contacts' | 'pending_review' | 'no_candidates' | 'failed'
   }>
+  candidates: ContactCandidate[]
+}
+
+export interface ContactCandidate {
+  id: number
+  person_name: string
+  email: string
+  confidence: number
+  source_url: string
+  evidence: string
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string
 }
 
 export async function getJobStatus(jobId: string): Promise<JobStatus> {
@@ -34,10 +46,14 @@ export function getStatusColor(status: string): string {
       return 'info'
     case 'interpreting':
       return 'info'
+    case 'finding_contacts':
+      return 'info'
     case 'completed':
       return 'success'
     case 'failed':
       return 'error'
+    case 'awaiting_approval':
+      return 'warning'
     default:
       return 'default'
   }
@@ -50,11 +66,15 @@ export function getStatusLabel(status: string): string {
     case 'researching':
       return '🔍 Researching Artists'
     case 'interpreting':
-      return '✉️ Finding Emails & Sending'
+      return 'Extracting contact candidates'
+    case 'finding_contacts':
+      return 'Analyzing artist pages'
     case 'completed':
       return '✅ Completed'
     case 'failed':
       return '❌ Failed'
+    case 'awaiting_approval':
+      return 'Review candidates'
     default:
       return status
   }

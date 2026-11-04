@@ -7,7 +7,11 @@ from app.services import serper_client
 
 
 def build_research_query(person_name: str) -> str:
-    return f'"{person_name}" profile OR team OR company'
+    return (
+        f'"{person_name}" '
+        '(rapper OR musician OR singer OR band OR "recording artist") '
+        '(management OR booking OR contact)'
+    )
 
 
 def research_person(job_id: str, person_name: str) -> list[dict[str, Any]]:

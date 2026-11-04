@@ -56,6 +56,33 @@ class PageFetchServiceTests(unittest.TestCase):
         mock_get.assert_called_once()
         self.assertEqual(mock_get.call_args.kwargs["allow_redirects"], False)
         self.assertTrue(mock_get.call_args.kwargs["stream"])
+        self.assertEqual(pages[0].mailto_count, 1)
+        self.assertEqual(pages[0].http_status, 200)
+        self.assertEqual(pages[0].content_type, "text/html")
+
+    @patch("app.services.page_fetch_service.requests.get")
+    def test_records_redirect_and_blocking_metadata(self, mock_get) -> None:
+        mock_get.side_effect = [
+            self.response(
+                status_code=302,
+                headers={"Location": "https://artist.example/contact"},
+            ),
+            self.response(
+                status_code=403,
+                body=b"<p>Access denied</p>",
+            ),
+        ]
+
+        pages = fetch_contact_pages(["https://artist.example/old"])
+
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(str(pages[0].source_url), "https://artist.example/contact")
+        self.assertEqual(
+            pages[0].redirect_history,
+            ["https://artist.example/old", "https://artist.example/contact"],
+        )
+        self.assertEqual(pages[0].http_status, 403)
+        self.assertTrue(pages[0].blocked)
 
     @patch("app.services.page_fetch_service.requests.get")
     def test_rejects_private_literal_ip_without_request(self, mock_get) -> None:

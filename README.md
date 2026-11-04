@@ -1,38 +1,136 @@
-# Send beats fast
+# BeatPlace
 
-Demo scaffold: minimal backend + frontend to accept a ZIP, parse artist names, and demo sending via Nodemailer.
+BeatPlace is a research-and-contact-discovery app that helps you upload a ZIP of beats, research target artists, find likely contact emails, and store the results as a job workflow.
 
-Quick start (demo):
+## What it does
 
-1. Install dependencies for the backend
+- Upload a ZIP archive containing tracks or release assets
+- Enter one or more artist names to research
+- Query search results for each artist using Serper
+- Cache recent research results to avoid duplicate searches
+- Fetch public pages and extract candidate contact emails
+- Persist job state in SQLite and expose status via API/SSE
+- Review candidate contacts without sending anything automatically
+
+## Current stack
+
+- Backend: Python + FastAPI + SQLite
+- Frontend: React + Vite + Material UI
+- Research: Serper API
+- Contact extraction: OpenAI-based extraction pipeline
+- Email delivery: SMTP integration prepared for production use
+
+## CURRENT ISSUE
+Pitfall when webistes hide email with javascript (requiring a paid account). Applications works as is, just low quality results.
+May change to be more general purpose with user editable context to find anybody's email.
+
+## Project structure
+
+```text
+backend/
+  app/
+    main.py
+    job_service.py
+    job_repository.py
+    job_events.py
+    models.py
+    services/
+  data/
+    jobs.sqlite3
+  tests/
+frontend/
+  src/
+  public/
+```
+
+## Local setup
+
+### 1) Backend
 
 ```bash
 cd backend
-python3 -m venv --without-pip .venv
-python3 -m pip --python .venv install -r requirements.txt
+python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+cp .env.example .env
+```
+
+Update `.env` with your SMTP and API credentials:
+
+```env
+SMTP_HOST=...
+SMTP_PORT=...
+SMTP_USER=...
+SMTP_PASSWORD=...
+SERPER_API_KEY=...
+OPENAI_API_KEY=...
+```
+
+Then start the API:
+
+```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-2. (Optional) create `.env` from `.env.example` to configure SMTP. If you skip this, the server will use a test account and return preview URLs.
+The API will be available at:
 
-3. Start the frontend
+- http://localhost:8000
+- Health check: http://localhost:8000/health
+
+### 2) Frontend
 
 ```bash
+cd frontend
+npm install
 npm run dev
 ```
 
-4. Then open http://localhost:8000 and submit the same form.
+Then open the Vite app in the browser, typically at:
 
-Next recommended steps:
-- Replace `backend/emailFinder.js` with a real search/people-API integration (SerpAPI, Hunter, Clearbit, etc.).
-- Add a background queue (Redis + BullMQ) for discovery and mass-sending.
-- Replace demo frontend with a React app (I can scaffold this next).
+- http://localhost:5173
 
-Python FastAPI rewrite (new):
-- A FastAPI backend has been added under `backend/`.
-- It keeps the same upload/send demo behavior without introducing a database yet.
-- Start it with:
+## API overview
 
+Key endpoints:
 
-# Send beats fast
+- `POST /upload` - upload ZIP + artist names
+- `GET /jobs/{job_id}` - fetch job status
+- `GET /jobs/{job_id}/events` - SSE job updates
+- `GET /jobs/{job_id}/people` - per-person status
+- `GET /jobs/{job_id}/candidates` - contact candidates
+
+## Status flow
+
+A job progresses through statuses such as:
+
+- `queued`
+- `researching`
+- `interpreting`
+- `awaiting_approval`
+- `completed`
+- `failed`
+
+People can also be tracked in states like:
+
+- `researching`
+- `finding_contacts`
+- `pending_review`
+- `no_candidates`
+- `failed`
+
+## Testing
+
+Run the backend test suite:
+
+```bash
+cd backend
+source .venv/bin/activate
+python -m unittest discover tests
+```
+
+## Notes
+
+- Research results are cached for 15 days to reduce duplicate Serper calls.
+- Candidate emails are stored in SQLite pending review rather than sent immediately.
+- The current app is a working research workflow scaffold; sending is intentionally guarded and not automatic.

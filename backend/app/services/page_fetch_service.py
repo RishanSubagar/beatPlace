@@ -69,8 +69,9 @@ def _read_limited_response(response: requests.Response) -> bytes:
     return bytes(body)
 
 
-def _fetch_html(url: str) -> tuple[str, str, str] | None:
+def _fetch_html(url: str) -> tuple[str, str, str, int, list[str]] | None:
     current_url = url
+    redirect_history = [url]
 
     for redirect_count in range(MAX_REDIRECTS + 1):
         _validate_public_url(current_url)
@@ -87,34 +88,43 @@ def _fetch_html(url: str) -> tuple[str, str, str] | None:
                 if not location or redirect_count == MAX_REDIRECTS:
                     return None
                 current_url = urljoin(current_url, location)
+                redirect_history.append(current_url)
                 continue
 
-            response.raise_for_status()
             content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
             if content_type not in HTML_CONTENT_TYPES:
                 return None
+            if response.status_code not in {401, 402, 403, 429}:
+                response.raise_for_status()
 
             content = _read_limited_response(response)
             encoding = response.encoding or "utf-8"
-            return current_url, content.decode(encoding, errors="replace"), content_type
+            return (
+                current_url,
+                content.decode(encoding, errors="replace"),
+                content_type,
+                response.status_code,
+                redirect_history,
+            )
         finally:
             response.close()
 
     return None
 
 
-def _extract_page_text(html: str) -> str:
+def _extract_page_text(html: str) -> tuple[str, int]:
     soup = BeautifulSoup(html, "html.parser")
     for element in soup(["script", "style", "noscript", "svg", "template"]):
         element.decompose()
 
     text_parts = [soup.get_text(" ", strip=True)]
-    for link in soup.select('a[href^="mailto:"]'):
+    mailto_links = soup.select('a[href^="mailto:"]')
+    for link in mailto_links:
         address = link.get("href", "")[len("mailto:"):].split("?", 1)[0].strip()
         if address:
             text_parts.append(f"Email: {address}")
 
-    return "\n".join(part for part in text_parts if part)[:MAX_PAGE_TEXT_CHARS]
+    return "\n".join(part for part in text_parts if part)[:MAX_PAGE_TEXT_CHARS], len(mailto_links)
 
 
 def fetch_contact_pages(urls: Iterable[str]) -> list[ContactSourcePage]:
@@ -139,11 +149,24 @@ def fetch_contact_pages(urls: Iterable[str]) -> list[ContactSourcePage]:
             fetched = _fetch_html(url)
             if fetched is None:
                 continue
-            final_url, html, _content_type = fetched
-            text = _extract_page_text(html)
-            if not text:
-                continue
-            pages.append(ContactSourcePage(source_url=final_url, text=text))
+            final_url, html, content_type, status_code, redirect_history = fetched
+            text, mailto_count = _extract_page_text(html)
+            lowered_text = text.lower()
+            blocked = status_code in {401, 402, 403, 429} or any(
+                phrase in lowered_text
+                for phrase in ("captcha", "access denied", "subscribe to continue", "paywall")
+            )
+            pages.append(
+                ContactSourcePage(
+                    source_url=final_url,
+                    text=text,
+                    http_status=status_code,
+                    content_type=content_type,
+                    redirect_history=redirect_history,
+                    mailto_count=mailto_count,
+                    blocked=blocked,
+                )
+            )
         except (requests.RequestException, UnsafeTargetError, ValidationError, ValueError) as error:
             print(f"[PAGE_FETCH] Skipping {url}: {error}")
 

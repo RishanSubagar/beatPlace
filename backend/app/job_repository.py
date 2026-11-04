@@ -97,7 +97,9 @@ def get_job(job_id: str) -> sqlite3.Row | None:
             """
             SELECT jobs.id, jobs.status, jobs.created_at,
                    COUNT(people.id) AS people_found,
-                   SUM(CASE WHEN people.status = 'completed' THEN 1 ELSE 0 END) AS people_completed
+                   SUM(CASE WHEN people.status IN
+                       ('pending_review', 'no_candidates', 'failed') THEN 1 ELSE 0 END)
+                       AS people_completed
             FROM jobs LEFT JOIN people ON people.job_id = jobs.id
             WHERE jobs.id = ? GROUP BY jobs.id
             """,

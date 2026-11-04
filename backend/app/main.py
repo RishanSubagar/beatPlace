@@ -11,7 +11,14 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
 from app.job_events import job_events
-from app.job_service import JobNotFoundError, create_research_job, get_research_job, get_people_for_job, run_job_cycle
+from app.job_service import (
+    JobNotFoundError,
+    create_research_job,
+    get_contact_candidates,
+    get_people_for_job,
+    get_research_job,
+    run_job_cycle,
+)
 from app.models import JobStatusResponse, UploadResponse
 from app.services.attachment_service import process_attachment
 from app.services.email_finder import parse_artists
@@ -25,6 +32,7 @@ app = FastAPI(title="BeatPlace", version="0.1.0")
 def _job_snapshot(job_id: str) -> dict[str, object]:
     job = get_research_job(job_id)
     people = get_people_for_job(job_id)
+    candidates = get_contact_candidates(job_id)
     return {
         "job_id": job["id"],
         "status": job["status"],
@@ -35,6 +43,7 @@ def _job_snapshot(job_id: str) -> dict[str, object]:
             {"name": person["name"], "status": person["status"]}
             for person in people
         ],
+        "candidates": [dict(candidate) for candidate in candidates],
     }
 
 
@@ -123,7 +132,7 @@ async def job_events_stream(job_id: str) -> StreamingResponse:
     async def stream():
         try:
             yield _sse_message(initial_snapshot)
-            if initial_snapshot["status"] in {"completed", "failed"}:
+            if initial_snapshot["status"] in {"awaiting_approval", "completed", "failed"}:
                 return
 
             while True:
@@ -134,7 +143,7 @@ async def job_events_stream(job_id: str) -> StreamingResponse:
                     continue
                 snapshot = _job_snapshot(job_id)
                 yield _sse_message(snapshot)
-                if snapshot["status"] in {"completed", "failed"}:
+                if snapshot["status"] in {"awaiting_approval", "completed", "failed"}:
                     return
         finally:
             job_events.unsubscribe(job_id, event_queue)
@@ -163,4 +172,17 @@ async def job_people(job_id: str) -> dict[str, object]:
             }
             for person in people
         ],
+    }
+
+
+@app.get("/jobs/{job_id}/candidates")
+async def job_contact_candidates(job_id: str) -> dict[str, object]:
+    try:
+        candidates = get_contact_candidates(job_id)
+    except JobNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+    return {
+        "job_id": job_id,
+        "candidates": [dict(candidate) for candidate in candidates],
     }
